@@ -1,0 +1,26 @@
+import type { CSSProperties } from "react";
+const paths: Record<string,string> = {
+  grid: "M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z",
+  upload: "M12 16V3m-5 5 5-5 5 5M4 15v5h16v-5",
+  file: "M14 2H5v20h14V7z M14 2v6h5 M8 12h8 M8 16h6",
+  folder: "M3 6h7l2 3h9v11H3z M3 6V4h6l2 2",
+  check: "m5 12 4 4L19 6",
+  chevron: "m9 5 7 7-7 7",
+  down: "m6 9 6 6 6-6",
+  plus: "M12 5v14M5 12h14",
+  close: "m6 6 12 12M6 18 18 6",
+  refresh: "M20 7v5h-5M4 17v-5h5M19 8a8 8 0 0 0-14-2M5 16a8 8 0 0 0 14 2",
+  shield: "m12 2 8 4v6c0 5-8 10-8 10S4 17 4 12V6z m-4 9 3 3 5-6",
+  activity: "M2 12h5l3-9 4 18 3-9h5",
+  clock: "M12 7v5l3 2 M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0",
+  chart: "M4 3v18h17 M8 15v3 M13 10v8 M18 6v12",
+  spark: "m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5z",
+  exit: "M9 3H4v18h5 M9 12h12m-5-5 5 5-5 5",
+  arrow: "M4 12h16m-6-6 6 6-6 6",
+  table: "M3 4h18v16H3z M3 9h18M3 14h18M9 4v16",
+  alert: "m12 3 10 18H2z M12 9v5M12 17v1",
+  layers: "m12 3 10 5-10 5L2 8z M2 12l10 5 10-5M2 16l10 5 10-5",
+  search: "M21 21l-5-5 M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0",
+  lock: "M5 10h14v11H5z M8 10V6a4 4 0 0 1 8 0v4",
+};
+export default function Icon({name,size=20,style}:{name:string;size?:number;style?:CSSProperties}) {return <svg style={style} width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={paths[name] || paths.file}/></svg>;}

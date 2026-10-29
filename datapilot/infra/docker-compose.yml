@@ -1,0 +1,101 @@
+name: datapilot
+x-app: &app
+  image: datapilot-backend:0.1.0
+  build:
+    context: ..
+    dockerfile: infra/docker/api.Dockerfile
+  environment: &environment
+    NO_PROXY: localhost,127.0.0.1,postgres,redis,minio
+    no_proxy: localhost,127.0.0.1,postgres,redis,minio
+    DATAPILOT_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:?}:${POSTGRES_PASSWORD:?}@postgres:5432/${POSTGRES_DB:?}
+    DATAPILOT_REDIS_URL: redis://redis:6379/0
+    DATAPILOT_S3_ENDPOINT: http://minio:9000
+    DATAPILOT_S3_ACCESS_KEY: ${MINIO_ROOT_USER:?}
+    DATAPILOT_S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:?}
+    DATAPILOT_APP_ORIGIN: ${DATAPILOT_APP_ORIGIN:-http://localhost:3000}
+    DATAPILOT_COOKIE_SECURE: ${DATAPILOT_COOKIE_SECURE:-false}
+    DATAPILOT_AI_KEY_ENCRYPTION_SECRET: ${DATAPILOT_AI_KEY_ENCRYPTION_SECRET:-}
+  networks: [backend]
+services:
+  postgres:
+    image: postgres:16.13-bookworm
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
+      POSTGRES_DB: ${POSTGRES_DB:?}
+    volumes: [postgres-data:/var/lib/postgresql/data]
+    networks: [backend]
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 3s
+      timeout: 3s
+      retries: 20
+  redis:
+    image: redis:7.4.8-bookworm
+    command: [redis-server, --appendonly, 'yes']
+    volumes: [redis-data:/data]
+    networks: [backend]
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+  minio:
+    build:
+      context: ..
+      dockerfile: infra/docker/minio.Dockerfile
+    command: server /data --console-address :9001
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?}
+    volumes: [object-data:/data]
+    networks: [backend]
+  migrate:
+    <<: *app
+    command: [alembic, upgrade, head]
+    depends_on:
+      postgres: {condition: service_healthy}
+  api:
+    <<: *app
+    ports: ['127.0.0.1:8000:8000']
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      redis: {condition: service_healthy}
+      minio: {condition: service_started}
+    healthcheck:
+      test: [CMD, python, -c, 'import urllib.request; urllib.request.urlopen("http://localhost:8000/health/ready", timeout=15)']
+      interval: 5s
+      timeout: 20s
+      retries: 20
+  worker:
+    <<: *app
+    user: '0:0'
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, SYS_CHROOT, SETUID, SETGID]
+    security_opt: ['no-new-privileges:true']
+    command: [celery, -A, worker.celery_app, worker, --beat, --schedule=/tmp/datapilot-beat, --loglevel=INFO, --concurrency=2]
+    depends_on:
+      api: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, celery, -A, worker.celery_app, inspect, ping, --timeout=3]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+  web:
+    environment:
+      DATAPILOT_API_URL: http://api:8000
+    build:
+      context: ..
+      dockerfile: infra/docker/web.Dockerfile
+    ports: ['127.0.0.1:3000:3000']
+    networks: [backend]
+    depends_on:
+      api: {condition: service_healthy}
+networks:
+  backend: {}
+volumes:
+  postgres-data:
+  redis-data:
+  object-data:
+# Each file is parsed in a short-lived, resource-limited subprocess with
+# enforced chroot/UID or Landlock filesystem access and seccomp network denial. No Docker socket.
