@@ -1,0 +1,71 @@
+name: DataPilot validation
+on:
+  push:
+    paths: ['datapilot/**', '.github/workflows/datapilot.yml']
+  pull_request:
+    paths: ['datapilot/**', '.github/workflows/datapilot.yml']
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: datapilot
+    services:
+      postgres:
+        image: postgres:16.13-bookworm
+        env:
+          POSTGRES_USER: datapilot
+          POSTGRES_PASSWORD: ci-only-password
+          POSTGRES_DB: datapilot_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U datapilot -d datapilot_test"
+          --health-interval 3s --health-timeout 3s --health-retries 20
+    env:
+      DATAPILOT_TEST_DATABASE_URL: postgresql+psycopg://datapilot:ci-only-password@localhost:5432/datapilot_test
+      DATAPILOT_FLOW_DATABASE_URL: postgresql+psycopg://datapilot:ci-only-password@localhost:5432/datapilot_flow_test
+      NEXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: datapilot/package-lock.json
+      - run: python -m pip install uv==0.12.23
+      - run: uv sync --frozen
+      - run: npm ci
+      - run: uv run ruff check . && uv run ruff format --check . && uv run mypy
+      - run: |
+          uv run python - <<'PYDB'
+          import os, psycopg
+          url = os.environ["DATAPILOT_TEST_DATABASE_URL"].replace("postgresql+psycopg://", "postgresql://")
+          with psycopg.connect(url, autocommit=True) as connection:
+              connection.execute("CREATE DATABASE datapilot_flow_test")
+          PYDB
+      - run: uv run pytest
+      - run: npm run build && npm run typecheck
+      - run: npm audit --omit=dev --audit-level=high
+      - run: uvx pip-audit==2.10.1 --path .venv/lib/python3.12/site-packages --progress-spinner off
+      - run: PYTHONPATH=services/api uv run python scripts/export_openapi.py
+      - run: npm run api:types
+      - run: git diff --exit-code -- packages/api-contract
+      - run: docker compose --env-file .env.example -f infra/docker-compose.yml config --quiet
+      - run: docker compose --env-file .env.example -f infra/docker-compose.yml up --build -d --wait --wait-timeout 300
+      - run: python scripts/smoke.py
+      - run: python scripts/check-wireframes.py
+      - run: python scripts/real-flow-smoke.py
+      - run: python scripts/mvp-flow-smoke.py
+      - run: npx playwright install --with-deps chromium
+      - run: node scripts/browser-smoke.mjs
+      - run: node scripts/browser-mvp-smoke.mjs
+      - run: docker compose --env-file .env.example -f infra/docker-compose.yml exec -T worker celery -A worker.celery_app inspect ping --timeout=5
+      - if: always()
+        run: docker compose --env-file .env.example -f infra/docker-compose.yml logs --tail=50
+      - if: always()
+        run: docker compose --env-file .env.example -f infra/docker-compose.yml down -v

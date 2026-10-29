@@ -1,0 +1,20 @@
+# Optional build-only trust bundle for corporate/cloud HTTPS inspection.
+services:
+  api:
+    build:
+      secrets: [build_ca]
+  migrate:
+    build:
+      secrets: [build_ca]
+  worker:
+    build:
+      secrets: [build_ca]
+  web:
+    build:
+      secrets: [build_ca]
+  minio:
+    build:
+      secrets: [build_ca]
+secrets:
+  build_ca:
+    file: ${DATAPILOT_BUILD_CA_FILE:?Set this to the trusted PEM CA bundle path}
